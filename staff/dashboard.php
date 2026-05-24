@@ -6,7 +6,7 @@ $totalProducts = $conn->query("SELECT COUNT(*) AS c FROM products WHERE Product_
 $totalOrders   = $conn->query("SELECT COUNT(*) AS c FROM orders")->fetch_assoc()['c'];
 $pendingOrders = $conn->query("SELECT COUNT(*) AS c FROM orders WHERE Order_Status='Pending'")->fetch_assoc()['c'];
 $preparingOrders = $conn->query("SELECT COUNT(*) AS c FROM orders WHERE Order_Status='Preparing'")->fetch_assoc()['c'];
-$readyOrders   = $conn->query("SELECT COUNT(*) AS c FROM orders WHERE Order_Status='Ready for Pickup'")->fetch_assoc()['c'];
+$readyOrders   = $conn->query("SELECT COUNT(*) AS c FROM orders WHERE Order_Status='Out for Delivery'")->fetch_assoc()['c'];
 $todayRevenue  = $conn->query("SELECT SUM(Order_Total) AS t FROM orders WHERE DATE(Order_Date_Time)=CURDATE() AND Order_Status='Completed'")->fetch_assoc()['t'] ?? 0;
 
 $recentOrders = $conn->query("
@@ -60,7 +60,7 @@ require '../includes/staff_header.php';
   <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden">
     <div style="height:4px;background:var(--accent)"></div>
     <div style="padding:14px 16px">
-      <div style="font-size:11px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">✅ Ready for Pickup</div>
+      <div style="font-size:11px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">✅ Out for Delivery</div>
       <div style="font-size:26px;font-weight:700;color:var(--accent);letter-spacing:-1px"><?= $readyOrders ?></div>
     </div>
   </div>
@@ -100,7 +100,7 @@ require '../includes/staff_header.php';
       $statusColor = match($row['Order_Status']) {
         'Pending'          => 'var(--warn)',
         'Preparing'        => 'var(--accent2)',
-        'Ready for Pickup' => 'var(--accent)',
+        'Out for Delivery' => 'var(--accent)',
         'Completed'        => 'var(--muted)',
         'Cancelled'        => 'var(--danger)',
         default            => 'var(--muted)'
@@ -108,7 +108,7 @@ require '../includes/staff_header.php';
       $badgeBg = match($row['Order_Status']) {
         'Pending'          => 'rgba(251,191,36,0.12)',
         'Preparing'        => 'rgba(34,211,238,0.12)',
-        'Ready for Pickup' => 'rgba(74,222,128,0.12)',
+        'Out for Delivery' => 'rgba(74,222,128,0.12)',
         'Completed'        => 'rgba(107,114,128,0.12)',
         'Cancelled'        => 'rgba(248,113,113,0.12)',
         default            => 'rgba(107,114,128,0.12)'

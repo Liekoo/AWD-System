@@ -75,11 +75,11 @@
     <div class="name"><?= htmlspecialchars($_SESSION['full_name']) ?></div>
   </div>
   <div class="nav-section">Menu</div>
-  <a href="/staff/dashboard.php" class="nav-link <?= basename($_SERVER['PHP_SELF']) == 'dashboard.php' ? 'active' : '' ?>"><span class="icon">◈</span> Dashboard</a>
-  <a href="/staff/products.php" class="nav-link <?= basename($_SERVER['PHP_SELF']) == 'products.php' ? 'active' : '' ?>"><span class="icon">⊟</span> Products</a>
-  <a href="/staff/orders.php" class="nav-link <?= basename($_SERVER['PHP_SELF']) == 'orders.php' ? 'active' : '' ?>"><span class="icon">⊞</span> Orders</a>
+  <a href="../staff/dashboard.php" class="nav-link <?= basename($_SERVER['PHP_SELF']) == 'dashboard.php' ? 'active' : '' ?>"><span class="icon">◈</span> Dashboard</a>
+  <a href="../staff/products.php" class="nav-link <?= basename($_SERVER['PHP_SELF']) == 'products.php' ? 'active' : '' ?>"><span class="icon">⊟</span> Products</a>
+  <a href="../staff/orders.php" class="nav-link <?= basename($_SERVER['PHP_SELF']) == 'orders.php' ? 'active' : '' ?>"><span class="icon">⊞</span> Orders</a>
   <div style="margin-top:auto">
-    <a href="/auth/logout.php" class="nav-link danger"><span class="icon">⏻</span> Logout</a>
+    <a href="../auth/logout.php" class="nav-link danger"><span class="icon">⏻</span> Logout</a>
   </div>
 </aside>
 <main class="main">

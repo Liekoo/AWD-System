@@ -47,7 +47,7 @@ $logsCount     = $conn->query("SELECT COUNT(*) AS c FROM orders WHERE Order_Stat
 define('TRACKER_URL', 'http://localhost:3000');
 
 // Statuses that have an active rider to dispatch
-$dispatchable = ['Preparing', 'Ready for Pickup'];
+$dispatchable = ['Preparing', 'Out for Delivery'];
 
 require "../includes/header.php";
 ?>
@@ -205,7 +205,7 @@ require "../includes/header.php";
             'Pending'          => 'badge-yellow',
             'Cancelled'        => 'badge-red',
             'Preparing'        => 'badge-blue',
-            'Ready for Pickup' => 'badge-green',
+            'Out for Delivery' => 'badge-green',
             default            => 'badge-blue'
           };
           $isDispatchable = in_array($row['Order_Status'], $dispatchable);
@@ -320,7 +320,7 @@ require "../includes/header.php";
         <div class="form-group">
           <label>Status</label>
           <select name="Order_Status" id="fStatus">
-            <?php foreach(['Pending','Preparing','Ready for Pickup','Completed','Cancelled'] as $s): ?>
+            <?php foreach(['Pending','Preparing','Out for Delivery','Completed','Cancelled'] as $s): ?>
               <option><?= $s ?></option>
             <?php endforeach; ?>
           </select>

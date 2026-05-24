@@ -45,7 +45,16 @@ while ($r = $orders->fetch_assoc()) $rows[] = $r;
 $total_orders  = count($rows);
 $total_spent   = array_sum(array_column($rows, 'Order_Total'));
 $pending_count = count(array_filter($rows, fn($r) => $r['Order_Status'] === 'Pending'));
-$trackable     = ['Preparing', 'Ready for Pickup'];
+$trackable     = ['Preparing', 'Out for Delivery'];
+
+$is_logged_in = isset($_SESSION['user_id']) && $_SESSION['role'] === 'user';
+$cart_count   = 0;
+if ($is_logged_in) {
+    $uid        = $_SESSION['user_id'];
+    $cart_count = $conn->query("SELECT SUM(Quantity) AS c FROM cart WHERE User_ID=$uid")->fetch_assoc()['c'] ?? 0;
+}
+
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -259,16 +268,23 @@ body{background:#eef7ff;color:var(--text);font-family:var(--sans);min-height:100
   .track-modal{width:100vw;max-height:100dvh;border-radius:0}
   .track-connector{width:22px}
 }
+
+.btn-outline1{color:var(--water);background:transparent;border:1.5px solid rgba(0,177,255,0.3);margin-bottom: 20px;color:var(--text-muted)}
+.btn-outline1:hover{background:rgba(0,112,255,0.15)}
+.cart-count{background:var(--water);color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:11px;font-family:var(--mono)}
+
   </style>
 </head>
 <body>
 
 <div class="topbar">
-  <div class="logo">Sip &amp; <span>Savor</span></div>
+  <div class="logo">Aqua<span>Luxe</span></div>
   <div class="topbar-right">
-    <a href="shop.php" class="btn btn-warm">Home</a>
-    <a href="cart.php" class="btn btn-outline">🛒 Cart</a>
-    <a href="../auth/logout.php" class="logout-link">logout</a>
+    <a href="shop.php" class="btn btn-outline">Home</a>
+    <a href="orders.php" class="btn btn-warm">My Orders</a>
+    <a href="wallet.php" class="btn btn-outline">Wallet 💳 ₱<?= number_format($conn->query("SELECT Wallet_Balance FROM users WHERE User_ID=$uid")->fetch_assoc()['Wallet_Balance'],2) ?></a>
+    <a href="cart.php" class="btn btn-outline">🛒 Cart <span class="cart-count" id="cartCount"><?= $cart_count ?></span></a>
+    <a href="../auth/logout.php" class="logout-link btn btn-outline">logout</a>
   </div>
 </div>
 
@@ -278,7 +294,7 @@ body{background:#eef7ff;color:var(--text);font-family:var(--sans);min-height:100
 </div>
 
 <div class="content">
-
+  <a href="shop.php" class="btn btn-outline1">← Back to home</a>
   <?php if (isset($_GET['success'])): ?>
     <div class="alert alert-success">💧 Order placed! We'll get it on the way soon.</div>
   <?php endif; ?>
@@ -308,7 +324,7 @@ body{background:#eef7ff;color:var(--text);font-family:var(--sans);min-height:100
         'Completed'        => 'badge-completed',
         'Pending'          => 'badge-pending',
         'Preparing'        => 'badge-processing',
-        'Ready for Pickup' => 'badge-pickup',
+        'Out for Delivery' => 'badge-pickup',
         'Cancelled'        => 'badge-cancelled',
         default            => 'badge-pending'
       };
@@ -372,7 +388,7 @@ body{background:#eef7ff;color:var(--text);font-family:var(--sans);min-height:100
   <?php endif; ?>
 </div>
 
-<div class="footer">🧋 Sip &amp; Savor — Made with love &amp; the finest ingredients</div>
+<div class="footer">AquaLuxe</div>
 
 <!-- Cancel modal -->
 <div class="modal-overlay" id="cancelModal">
@@ -550,7 +566,7 @@ function updateTimeline(status) {
   if (status === 'Preparing') {
     document.getElementById('tl-preparing').classList.add('active');
     document.getElementById('tl-lbl-preparing').classList.add('active');
-  } else if (status === 'Ready for Pickup') {
+  } else if (status === 'Out for Delivery') {
     document.getElementById('tl-preparing').classList.add('done');
     document.getElementById('tl-preparing').textContent = '✓';
     document.getElementById('tl-line-2').classList.add('done');

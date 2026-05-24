@@ -1,21 +1,40 @@
 <?php
+session_start(); // 1. FIX: Initialize session to use $_SESSION
 require '../config.php';
 $pageTitle = 'Wallet Management';
 
+// Ensure the admin is actually logged in
+if (!isset($_SESSION['user_id'])) {
+    die("Access Denied: Please log in as admin.");
+}
+
+$pageTitle = 'Wallet Management';
+$admin = (int)$_SESSION['user_id']; // 2. FIX: Store admin ID early
+
 // Approve / reject top-up request
 if (isset($_GET['approve'])) {
-    $rid    = (int)$_GET['approve'];
-    $req    = $conn->query("SELECT * FROM topup_requests WHERE Request_ID=$rid AND Status='pending'")->fetch_assoc();
+    $rid = (int)$_GET['approve'];
+    $req = $conn->query("SELECT * FROM topup_requests WHERE Request_ID=$rid AND Status='pending'")->fetch_assoc();
+    
     if ($req) {
         $uid    = $req['User_ID'];
         $amount = $req['Amount'];
         $ref    = $conn->real_escape_string($req['Reference']);
-        $admin  = $_SESSION['user_id'];
-        $conn->query("UPDATE topup_requests SET Status='approved',Reviewed_By=$admin,Reviewed_At=NOW() WHERE Request_ID=$rid");
-        $newBal = $conn->query("SELECT Wallet_Balance FROM users WHERE User_ID=$uid")->fetch_assoc()['Wallet_Balance'] + $amount;
+        
+        // 3. FIX: Ensure clear spacing in the UPDATE query
+        $conn->query("UPDATE topup_requests SET Status='approved', Reviewed_By=$admin, Reviewed_At=NOW() WHERE Request_ID=$rid");
+        
+        $userRow = $conn->query("SELECT Wallet_Balance FROM users WHERE User_ID=$uid")->fetch_assoc();
+        $newBal = $userRow['Wallet_Balance'] + $amount;
+        
         $conn->query("UPDATE users SET Wallet_Balance=$newBal WHERE User_ID=$uid");
-        $note = $conn->real_escape_string("Top-up via {$req['Payment_Method']} ref:{$req['Reference']}");
-        $conn->query("INSERT INTO wallet_transactions (User_ID,Type,Amount,Balance_After,Reference,Note,Status) VALUES ($uid,'topup',$amount,$newBal,'$ref','$note','approved')");
+        
+        $method = $conn->real_escape_string($req['Payment_Method']);
+        $note = $conn->real_escape_string("Top-up via $method ref:$ref");
+        
+        $conn->query("INSERT INTO wallet_transactions (User_ID, Type, Amount, Balance_After, Reference, Note, Status) 
+                      VALUES ($uid, 'topup', $amount, $newBal, '$ref', '$note', 'approved')");
+        
         header('Location: wallet.php?toast=approved'); exit;
     }
 }
@@ -23,8 +42,10 @@ if (isset($_GET['approve'])) {
 if (isset($_GET['reject'])) {
     $rid  = (int)$_GET['reject'];
     $note = $conn->real_escape_string($_GET['note'] ?? 'Rejected by admin');
-    $admin= $_SESSION['user_id'];
-    $conn->query("UPDATE topup_requests SET Status='rejected',Reviewed_By=$admin,Reviewed_At=NOW(),Note='$note' WHERE Request_ID=$rid AND Status='pending'");
+    
+    // 3. FIX: Ensure clear spacing here as well
+    $conn->query("UPDATE topup_requests SET Status='rejected', Reviewed_By=$admin, Reviewed_At=NOW(), Note='$note' WHERE Request_ID=$rid AND Status='pending'");
+    
     header('Location: wallet.php?toast=rejected'); exit;
 }
 
@@ -63,7 +84,11 @@ $pendingCount = $conn->query("SELECT COUNT(*) AS c FROM topup_requests WHERE Sta
 
 require '../includes/header.php';
 ?>
-
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wallet admin</title>
 <style>
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:500;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
 .modal-overlay.open{display:flex}
@@ -76,8 +101,18 @@ require '../includes/header.php';
 .toast-success{background:var(--accent);color:#0e0f11}
 .toast-danger{background:var(--danger);color:#fff}
 .toast-info{background:var(--accent2);color:#0e0f11}
+.proof-thumb{width:52px;height:52px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:pointer;transition:transform 0.15s}
+.proof-thumb:hover{transform:scale(1.08)}
+.proof-btn{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;background:rgba(34,211,238,0.1);color:var(--accent2);border:1px solid rgba(34,211,238,0.25);border-radius:20px;font-size:11px;font-family:var(--mono);cursor:pointer;text-decoration:none;transition:all 0.15s}
+.proof-btn:hover{background:rgba(34,211,238,0.2)}
+.lightbox-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:600;align-items:center;justify-content:center;backdrop-filter:blur(6px)}
+.lightbox-overlay.open{display:flex}
+.lightbox-img{max-width:90vw;max-height:85vh;border-radius:12px;object-fit:contain;box-shadow:0 24px 60px rgba(0,0,0,0.5)}
+.lightbox-close{position:absolute;top:20px;right:24px;background:rgba(255,255,255,0.1);border:none;color:#fff;font-size:24px;cursor:pointer;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:background 0.15s}
+.lightbox-close:hover{background:rgba(255,255,255,0.2)}
+.no-proof{font-size:11px;font-family:var(--mono);color:var(--muted);font-style:italic}
 </style>
-
+</head>
 <div class="page-header">
   <h1 class="page-title">Sip <span>Credits</span></h1>
   <button class="btn btn-primary" onclick="document.getElementById('manualModal').classList.add('open')">+ Manual Top-Up</button>
@@ -109,6 +144,15 @@ require '../includes/header.php';
           <div style="font-size:11px;color:var(--muted);font-family:var(--mono)"><?= date('M d, Y h:i A', strtotime($req['Created_At'])) ?></div>
         </div>
       </div>
+      <?php if (!empty($req['Proof_Image'])): ?>
+        <div style="margin:8px 0 10px">
+          <img src="../<?= htmlspecialchars($req['Proof_Image']) ?>" class="proof-thumb"
+               onclick="openLightbox('../<?= htmlspecialchars($req['Proof_Image']) ?>')" title="Click to view full proof">
+          <a href="../<?= htmlspecialchars($req['Proof_Image']) ?>" target="_blank" class="proof-btn" style="margin-left:8px">🖼 View Proof</a>
+        </div>
+      <?php else: ?>
+        <div class="no-proof" style="margin-bottom:10px;font-size:11px;font-family:var(--mono);color:var(--muted)">No proof image attached</div>
+      <?php endif; ?>
       <div style="display:flex;gap:8px">
         <a href="?approve=<?= $req['Request_ID'] ?>" class="btn btn-primary btn-sm"
            onclick="return confirm('Approve ₱<?= number_format($req['Amount'],2) ?> for <?= htmlspecialchars($req['Full_Name']) ?>?')">
@@ -151,7 +195,7 @@ require '../includes/header.php';
   <div class="card-title">All Top-Up Requests</div>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Date</th><th>Customer</th><th>Amount</th><th>Method</th><th>Reference</th><th>Status</th><th>Note</th></tr></thead>
+      <thead><tr><th>Date</th><th>Customer</th><th>Amount</th><th>Method</th><th>Reference</th><th>Proof</th><th>Status</th><th>Note</th></tr></thead>
       <tbody>
         <?php $allRequests->data_seek(0); while ($req=$allRequests->fetch_assoc()):
           $b=match($req['Status']){'approved'=>'badge-green','rejected'=>'badge-red',default=>'badge-yellow'};
@@ -163,7 +207,15 @@ require '../includes/header.php';
           <td><?= $req['Payment_Method'] ?></td>
           <td class="mono"><?= htmlspecialchars($req['Reference']) ?></td>
           <td><span class="badge <?= $b ?>"><?= $req['Status'] ?></span></td>
-          <td style="font-size:11px;color:var(--muted)"><?= htmlspecialchars($req['Note'] ?? '—') ?></td>
+          <td>
+            <?php if (!empty($req['Proof_Image'])): ?>
+              <img src="../<?= htmlspecialchars($req['Proof_Image']) ?>" class="proof-thumb"
+                   onclick="openLightbox('../<?= htmlspecialchars($req['Proof_Image']) ?>')" title="View proof">
+            <?php else: ?>
+              <span class="no-proof">—</span>
+            <?php endif; ?>
+          </td>
+
         </tr>
         <?php endwhile; ?>
       </tbody>
@@ -251,5 +303,6 @@ if(key&&msgs[key]){
   history.replaceState({},'',location.pathname);
 }
 </script>
-
+</body>
+</html>
 <?php require '../includes/footer.php'; ?>

@@ -17,8 +17,15 @@ $cart_items = $conn->query("
 ");
 
 $items = [];
+
 $grand_total = 0;
+
 while ($r = $cart_items->fetch_assoc()) { $items[] = $r; $grand_total += $r['Subtotal']; }
+
+$delivery_fee  = 10;
+$service_fee   = 10;
+$fees_total    = $delivery_fee + $service_fee;
+$order_grand_total = $grand_total + $fees_total;
 
 $payment_types  = $conn->query("SELECT * FROM payments_type");
 $customer_name  = $_SESSION['full_name'];
@@ -48,7 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['checkout'])) {
         // No payment selected — fall through
     } elseif (!$address_id) {
         $shipping_error = true;
-    } elseif ($use_wallet && $wallet_balance < $fresh_total) {
+    } elseif ($use_wallet && $wallet_balance < ($fresh_total + $fees_total)) {
         $wallet_error = true;
     } else {
         $actual_pid = $use_wallet
@@ -60,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['checkout'])) {
             $sid = $item['Size_ID'] ?: 'NULL';
             $qty = $item['Quantity'];
             $price = $item['Unit_Price'];
-            $fn  = $use_wallet ? ($note ? $note . ' [Sip Credits]' : 'Paid with Sip Credits') : $note;
+            $fn  = $use_wallet ? ($note ? $note . ' [Wallet]' : 'Paid with Wallet') : $note;
             $fne = $conn->real_escape_string($fn);
             $conn->query("INSERT INTO orders
                 (User_ID,Product_ID,Size_ID,Customer_Type_ID,Payment_Type_ID,
@@ -71,17 +78,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['checkout'])) {
         }
 
         if ($use_wallet) {
-            $new_bal = $wallet_balance - $fresh_total;
+            $charged = $fresh_total + $fees_total;
+            $new_bal = $wallet_balance - $charged;
             $conn->query("UPDATE users SET Wallet_Balance=$new_bal WHERE User_ID=$uid");
-            $wNote = $conn->real_escape_string('Order payment via Sip Credits');
+            $wNote = $conn->real_escape_string('Order payment via Wallet (incl. fees)');
             $conn->query("INSERT INTO wallet_transactions (User_ID,Type,Amount,Balance_After,Note,Status)
-                          VALUES ($uid,'purchase',$fresh_total,$new_bal,'$wNote','approved')");
+                          VALUES ($uid,'purchase',$charged,$new_bal,'$wNote','approved')");
         }
 
         $conn->query("DELETE FROM cart WHERE User_ID=$uid");
         header('Location: orders.php?success=1'); exit;
     }
 }
+
 
 // ── AJAX: Save new address ─────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_address'])) {
@@ -134,7 +143,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_address'])) {
 <html lang="en">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Your Order — Sip &amp; Savor</title>
+  <title>Your Order — Aqualuxe</title>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&family=DM+Mono&display=swap" rel="stylesheet">
   <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -160,6 +169,8 @@ body{background:#eef7ff;color:var(--text);font-family:var(--sans);min-height:100
   text-decoration:none;transition:all 0.2s}
 .btn-outline{color:#cce8ff;background:transparent;border:1.5px solid rgba(0,177,255,0.3)}
 .btn-outline:hover{background:rgba(0,112,255,0.15)}
+.btn-outline1{color:var(--water);background:transparent;border:1.5px solid rgba(0,177,255,0.3);margin-bottom: 20px;color:var(--text-muted)}
+.btn-outline1:hover{background:rgba(0,112,255,0.15)}
 .logout-link{font-size:12px;color:rgba(168,212,245,0.4);text-decoration:none;font-family:var(--mono)}
 .logout-link:hover{color:var(--water-light)}
 
@@ -520,23 +531,27 @@ textarea{resize:vertical;min-height:70px}
 .toast-bar.show{opacity:1;transform:translateY(0)}
 .toast-bar.error{background:#c04a00}
 .toast-bar.success{background:var(--track-dark)}
-
+.btn-warm{color:#fff;background:var(--water)}.btn-warm:hover{background:var(--water-mid);transform:translateY(-1px)}
 .footer{background:var(--navy);color:rgba(168,212,245,0.4);text-align:center;padding:20px;font-size:12px;font-family:var(--mono);margin-top:60px}
+
+
   </style>
 </head>
 <body>
 
 <div class="topbar">
-  <div class="logo">Sip &amp; <span>Savor</span></div>
+  <div class="logo">Aqua<span>Luxe</span></div>
   <div class="topbar-right">
+    <a href="shop.php" class="btn btn-outline">Home</a>
     <a href="orders.php" class="btn btn-outline">My Orders</a>
-    <a href="wallet.php" class="btn btn-outline">💳 ₱<?= number_format($wallet_balance,2) ?></a>
-    <a href="../auth/logout.php" class="logout-link">logout</a>
+    <a href="wallet.php" class="btn btn-outline">Wallet 💳 ₱<?= number_format($conn->query("SELECT Wallet_Balance FROM users WHERE User_ID=$uid")->fetch_assoc()['Wallet_Balance'],2) ?></a>
+    <a href="cart.php" class="btn btn-warm">🛒 Cart</a>
+    <a href="../auth/logout.php" class="logout-link btn btn-outline">logout</a>
   </div>
 </div>
 
 <div class="content">
-  <a href="shop.php" class="back-link">← Back to menu</a>
+  <a href="shop.php" class="btn btn-outline1">← Back to home</a>
   <h1 class="page-title">Your <span>Order</span></h1>
   <p class="page-sub"><?= count($items) ?> item<?= count($items)!=1?'s':'' ?> in your cart</p>
 
@@ -544,7 +559,7 @@ textarea{resize:vertical;min-height:70px}
     <div class="alert-error">📍 Please select a delivery address before placing your order.</div>
   <?php endif; ?>
   <?php if (isset($wallet_error)): ?>
-    <div class="alert-error">✕ Insufficient Sip Credits. Balance: ₱<?= number_format($wallet_balance,2) ?> — Total: ₱<?= number_format($grand_total,2) ?>. <a href="wallet.php">Top up →</a></div>
+    <div class="alert-error">✕ Insufficient Wallet balance. Balance: ₱<?= number_format($wallet_balance,2) ?> — Total: ₱<?= number_format($order_grand_total,2) ?>. <a href="wallet.php">Top up →</a></div>
   <?php endif; ?>
 
   <?php if (empty($items)): ?>
@@ -593,7 +608,7 @@ textarea{resize:vertical;min-height:70px}
         <div class="autobuy-header">
           <div>
             <div class="autobuy-label">🔁 Auto-Buy</div>
-            <div class="autobuy-sub">Automatically reorder this cart using Sip Credits</div>
+            <div class="autobuy-sub">Automatically reorder this cart using Wallet</div>
           </div>
           <label class="toggle-wrap">
             <input type="checkbox" id="autobuyToggle" onchange="handleAutobuyToggle(this.checked)">
@@ -639,8 +654,21 @@ textarea{resize:vertical;min-height:70px}
           <?php endforeach; ?>
           <div class="divider"></div>
           <div class="summary-total">
+            <span class="summary-total-label">Subtotal</span>
+            <span class="summary-value" id="subtotalDisplay">₱<?= number_format($grand_total,2) ?></span>
+          </div>
+
+          <div class="summary-row">
+            <span class="summary-label">🛵 Delivery Fee</span>
+            <span class="summary-value">₱10.00</span>
+          </div>
+          <div class="summary-row">
+            <span class="summary-label">⚙️ Service Fee</span>
+            <span class="summary-value">₱10.00</span>
+          </div>
+          <div class="summary-total">
             <span class="summary-total-label">Total</span>
-            <span class="summary-total-value" id="grandTotal">₱<?= number_format($grand_total,2) ?></span>
+            <span class="summary-total-value" id="grandTotal">₱<?= number_format($order_grand_total,2) ?></span>
           </div>
 
           <form method="POST" style="margin-top:20px" id="checkoutForm">
@@ -675,9 +703,13 @@ textarea{resize:vertical;min-height:70px}
                 <?php $payment_types->data_seek(0); while ($pt=$payment_types->fetch_assoc()): ?>
                   <option value="<?= $pt['Payment_Type_ID'] ?>"><?= htmlspecialchars($pt['Payment_Type_Description']) ?></option>
                 <?php endwhile; ?>
-                <option value="wallet">💳 Sip Credits (₱<?= number_format($wallet_balance,2) ?>)</option>
+                <option value="wallet">💳 Wallet (₱<?= number_format($wallet_balance,2) ?>)</option>
               </select>
               <div class="wallet-breakdown" id="walletBreakdown">
+                <div class="wb-row"><span class="wb-label">Subtotal</span><span class="wb-val" id="wbSubtotal">₱<?= number_format($grand_total,2) ?></span></div>
+                <div class="wb-row"><span class="wb-label">Delivery Fee</span><span class="wb-val">₱10.00</span></div>
+                <div class="wb-row"><span class="wb-label">Service Fee</span><span class="wb-val">₱10.00</span></div>
+                <hr class="wb-divider">
                 <div class="wb-row"><span class="wb-label">Your balance</span><span class="wb-val">₱<?= number_format($wallet_balance,2) ?></span></div>
                 <div class="wb-row"><span class="wb-label">Order total</span><span class="wb-val" id="wbTotal">₱<?= number_format($grand_total,2) ?></span></div>
                 <hr class="wb-divider">
@@ -708,7 +740,7 @@ textarea{resize:vertical;min-height:70px}
   <?php endif; ?>
 </div>
 
-<div class="footer">🧋 Sip &amp; Savor Milk Tea — Made with love &amp; the finest ingredients</div>
+<div class="footer">🧋 Aqua<span>Luxe</span></div>
 
 <!-- ══════════════════════════════════════════════════════
      DELIVERY ADDRESS MODAL
@@ -842,7 +874,7 @@ textarea{resize:vertical;min-height:70px}
 <div class="modal-overlay" id="walletModal">
   <div class="modal">
     <span class="modal-icon">💳</span>
-    <h3>Confirm with Sip Credits</h3>
+    <h3>Confirm with Wallet</h3>
     <p id="walletModalBody"></p>
     <div class="modal-actions">
       <button class="modal-cancel" onclick="document.getElementById('walletModal').classList.remove('open')">Cancel</button>
@@ -880,7 +912,11 @@ textarea{resize:vertical;min-height:70px}
    STATE
 ═══════════════════════════════════════════════════════════ */
 const walletBalance = <?= $wallet_balance ?>;
-let grandTotal      = <?= $grand_total ?>;
+const DELIVERY_FEE = 10;
+const SERVICE_FEE  = 10;
+const FEES_TOTAL   = DELIVERY_FEE + SERVICE_FEE;
+let itemsTotal = <?= $grand_total ?>;
+let grandTotal = itemsTotal + FEES_TOTAL;
 let useWallet       = false;
 let selectedAddrId  = <?= $default_address ? $default_address['Address_ID'] : 'null' ?>;
 let addrLat = null, addrLng = null;
@@ -1121,7 +1157,7 @@ function updateCheckoutBtn() {
   if (useWallet) {
     const ok = walletBalance >= grandTotal;
     btn.disabled = !ok;
-    btn.textContent = ok ? 'Pay with Sip Credits — ₱' + fmt(grandTotal) : 'Insufficient Sip Credits';
+    btn.textContent = ok ? 'Pay with Wallet — ₱' + fmt(grandTotal) : 'Insufficient Wallet';
     return;
   }
   btn.disabled = false;
@@ -1138,6 +1174,7 @@ function handlePaymentChange(val) {
 
 function updateWalletBreakdown() {
   const rem = walletBalance - grandTotal;
+  document.getElementById('wbSubtotal').textContent  = '₱' + fmt(itemsTotal);
   document.getElementById('wbTotal').textContent     = '₱' + fmt(grandTotal);
   document.getElementById('wbRemaining').textContent = '₱' + fmt(rem);
   document.getElementById('wbRemaining').style.color = rem >= 0 ? 'var(--water-light)' : '#e07040';
@@ -1148,10 +1185,12 @@ function handleCheckout() {
   if (useWallet) {
     const rem = walletBalance - grandTotal;
     document.getElementById('walletModalBody').innerHTML =
-      `<strong>Balance:</strong> ₱${fmt(walletBalance)}<br>
-       <strong>Order total:</strong> ₱${fmt(grandTotal)}<br>
-       <strong>Remaining after:</strong> ₱${fmt(rem)}<br><br>
-       Sip Credits will be deducted immediately.`;
+        `<strong>Subtotal:</strong> ₱${fmt(itemsTotal)}<br>
+        <strong>Delivery Fee:</strong> ₱10.00<br>
+        <strong>Service Fee:</strong> ₱10.00<br>
+        <strong>Order Total:</strong> ₱${fmt(grandTotal)}<br>
+        <strong>Remaining after:</strong> ₱${fmt(walletBalance - grandTotal)}<br><br>
+        Wallet balance will be deducted immediately.`;
     document.getElementById('walletModal').classList.add('open');
   } else {
     submitOrder();
@@ -1198,8 +1237,10 @@ function removeItem(cid) {
 function recalc() {
   let total = 0;
   Object.keys(prices).forEach(cid => { total += (qtys[cid]||0)*prices[cid]; });
-  grandTotal = total;
-  document.getElementById('grandTotal').textContent = '₱' + fmt(total.toFixed(2));
+  itemsTotal = total;
+  grandTotal = total + FEES_TOTAL;
+  document.getElementById('subtotalDisplay').textContent = '₱' + fmt(total.toFixed(2));
+  document.getElementById('grandTotal').textContent = '₱' + fmt(grandTotal.toFixed(2));
   if (useWallet) updateWalletBreakdown();
   updateCheckoutBtn();
 }
@@ -1216,7 +1257,7 @@ function confirmAutobuy() {
   const date = document.getElementById('autobuyDate').value;
   if (!date) { showToast('Please select a start date.','error'); return; }
   document.getElementById('autobuyModalBody').innerHTML =
-    `Auto-Buy: <strong>${day.options[day.selectedIndex].text}</strong> from <strong>${date}</strong> — ₱${fmt(grandTotal)}/order using Sip Credits.`;
+    `Auto-Buy: <strong>${day.options[day.selectedIndex].text}</strong> from <strong>${date}</strong> — ₱${fmt(grandTotal)}/order using Wallet.`;
   document.getElementById('autobuyModal').classList.add('open');
 }
 function activateAutobuy() {

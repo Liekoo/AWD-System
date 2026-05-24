@@ -25,7 +25,7 @@ $defaultSize = $sizes[0] ?? null;
 <html lang="en">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Aqualuxe Water Refilling Station</title>
+  <title>AquaLuxe Water Refilling Station</title>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&family=DM+Mono&display=swap" rel="stylesheet">
   <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -49,7 +49,7 @@ body{background:#eef7ff;color:var(--text);font-family:var(--sans);min-height:100
 .btn-cart{color:var(--deep);background:#cce8ff}.btn-cart:hover{background:#b3dbff;transform:translateY(-1px)}
 .cart-count{background:var(--water);color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:11px;font-family:var(--mono)}
 .user-chip{font-size:13px;color:#a8d4f5;font-weight:500}
-.logout-link{font-size:12px;color:rgba(168,212,245,0.4);text-decoration:none;font-family:var(--mono);transition:color 0.15s}.logout-link:hover{color:var(--water-light)}
+.logout-link{font-size:12px;color:#cce8ff;text-decoration:none;font-family:var(--mono);transition:color 0.15s}.logout-link:hover{color:var(--water-light)}
 .hero{background:linear-gradient(135deg,var(--navy) 0%,var(--deep2) 50%,#005bb5 100%);padding:64px 40px;text-align:center;position:relative;overflow:hidden}
 .hero::before{content:'';position:absolute;inset:0;background:url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none'%3E%3Cg fill='%230097ff' fill-opacity='0.07'%3E%3Ccircle cx='30' cy='30' r='4'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")}
 .hero-content{position:relative;z-index:1}
@@ -154,14 +154,15 @@ body{background:#eef7ff;color:var(--text);font-family:var(--sans);min-height:100
 <div class="topbar">
   <div class="logo">
     <span class="logo-icon">💧</span>
-    <div class="logo-text">Aqualuxe </div>
+    <div class="logo-text">AquaLuxe </div>
   </div>
   <div class="topbar-right">
     <?php if ($is_logged_in): ?>
       <span class="user-chip">Hi, <?= htmlspecialchars($_SESSION['full_name']) ?> 👋</span>
+      <a href="shop.php" class="btn btn-warm">Home</a>
       <a href="orders.php" class="btn btn-outline">My Orders</a>
-      <a href="wallet.php" class="btn btn-outline">💳 ₱<?= number_format($conn->query("SELECT Wallet_Balance FROM users WHERE User_ID=$uid")->fetch_assoc()['Wallet_Balance'],2) ?></a>
-      <a href="cart.php" class="btn btn-cart">🛒 Cart <span class="cart-count" id="cartCount"><?= $cart_count ?></span></a>
+      <a href="wallet.php" class="btn btn-outline"> Wallet 💳 ₱<?= number_format($conn->query("SELECT Wallet_Balance FROM users WHERE User_ID=$uid")->fetch_assoc()['Wallet_Balance'],2) ?></a>
+      <a href="cart.php" class="btn btn-outline">🛒 Cart <span class="cart-count" id="cartCount"><?= $cart_count ?></span></a>
       <a href="../auth/logout.php" class="logout-link btn btn-outline">logout</a>
     <?php else: ?>
       <a href="../auth/login.php?redirect=user/shop.php" class="btn btn-outline">Sign In</a>
@@ -235,7 +236,7 @@ body{background:#eef7ff;color:var(--text);font-family:var(--sans);min-height:100
           <div class="product-desc"><?= htmlspecialchars($p['Product_Description']) ?></div>
         <?php endif; ?>
       </div>
-
+<!---      Load sizes for this product 
       <?php if (!empty($sizes)): ?>
       <div class="size-section">
         <div class="size-row">
@@ -252,6 +253,7 @@ body{background:#eef7ff;color:var(--text);font-family:var(--sans);min-height:100
           <?php endforeach; ?>
         </div>
       </div>
+          -->
       <?php endif; ?>
 
       <div class="product-footer">
@@ -273,6 +275,13 @@ body{background:#eef7ff;color:var(--text);font-family:var(--sans);min-height:100
           onclick="addToCart(<?= $p['Product_ID'] ?>, this)">
           + Add to Order
         </button>
+        <button class="add-btn" href="cart.php" 
+          id="addbtn-<?= $p['Product_ID'] ?>"
+          data-product-id="<?= $p['Product_ID'] ?>"
+          data-selected-size="<?= $defaultSize ? $defaultSize['Size_ID'] : '' ?>"
+          onclick="addToCart(<?= $p['Product_ID'] ?>, this); window.location.href='cart.php';">
+          Buy Now
+        </button>
       <?php else: ?>
         <button class="add-btn guest" onclick="window.location='../auth/login.php?redirect=user/shop.php'">Sign in to Order</button>
       <?php endif; ?>
@@ -282,7 +291,7 @@ body{background:#eef7ff;color:var(--text);font-family:var(--sans);min-height:100
   <?php endif; ?>
 </div>
 
-<div class="footer">💧 Aqualuxe — Pure water, pure care, delivered to your door</div>
+<div class="footer">💧 AquaLuxe — Pure water, pure care, delivered to your door</div>
 <div class="toast" id="toast">💧 Added to your order!</div>
 
 <script>

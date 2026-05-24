@@ -89,7 +89,7 @@
   <a href="../admin/products.php" class="nav-link <?= basename($_SERVER['PHP_SELF']) == 'products.php' ? 'active' : '' ?>"><span class="icon">⊟</span> Products</a>
   <a href="../admin/users.php" class="nav-link <?= basename($_SERVER['PHP_SELF']) == 'users.php' ? 'active' : '' ?>"><span class="icon">⊕</span> Users</a>
   <a href="../admin/customer_types.php" class="nav-link <?= basename($_SERVER['PHP_SELF']) == 'customer_types.php' ? 'active' : '' ?>"><span class="icon">◎</span> Customer Types</a>
-  <a href="../admin/wallet.php" class="nav-link <?= basename($_SERVER['PHP_SELF']) == 'wallet.php' ? 'active' : '' ?>"><span class="icon">💳</span> Sip Credits</a>
+  <a href="../admin/wallet.php" class="nav-link <?= basename($_SERVER['PHP_SELF']) == 'wallet.php' ? 'active' : '' ?>"><span class="icon">💳</span> Wallet</a>
   <a href="../admin/sizes.php" class="nav-link <?= basename($_SERVER['PHP_SELF']) == 'sizes.php' ? 'active' : '' ?>"><span class="icon">⊘</span> Sizes</a>
   <a href="../admin/payment_types.php" class="nav-link <?= basename($_SERVER['PHP_SELF']) == 'payment_types.php' ? 'active' : '' ?>"><span class="icon">⊗</span> Payment Types</a>
   <div style="margin-top:auto">
