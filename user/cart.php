@@ -51,24 +51,80 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['checkout'])) {
     $fresh_total = 0;
     foreach ($items as $item) { $fresh_total += $item['Subtotal']; }
 
-    if (empty($payment_id)) {
-        // No payment selected — fall through
-    } elseif (!$address_id) {
-        $shipping_error = true;
-    } elseif ($use_wallet && $wallet_balance < ($fresh_total + $fees_total)) {
-        $wallet_error = true;
+     if (empty($payment_id)) {
+    // No payment selected — fall through
+} elseif (!$address_id) {
+    $shipping_error = true;
+} elseif ($use_wallet && $wallet_balance < ($fresh_total + $fees_total)) {
+    $wallet_error = true;
+} else {
+    // ── Check if GCash was selected ────────────────────────────
+    $gcash_row = $conn->query("SELECT Payment_Type_ID FROM payments_type WHERE Payment_Type_Description='GCash' LIMIT 1")->fetch_assoc();
+    $gcash_pid = $gcash_row ? (int)$gcash_row['Payment_Type_ID'] : null;
+    $is_gcash  = ($gcash_pid && (int)$payment_id === $gcash_pid);
+
+    if ($is_gcash) {
+        // Store pending order info in session — webhook will use this to insert
+        $items_json = $conn->real_escape_string(json_encode($items) ?: '[]');
+        $cust_esc   = $conn->real_escape_string($customer_name);
+        $note_esc   = $conn->real_escape_string($note);
+        $total      = $fresh_total + $fees_total;
+
+        $amount_centavos = (int)(($fresh_total + $fees_total) * 100);
+
+        $payload = json_encode([
+            'data' => [
+                'attributes' => [
+                    'amount'   => $amount_centavos,
+                    'currency' => 'PHP',
+                    'type'     => 'gcash',
+                    'redirect' => [
+                        'success' => 'http://localhost/water/user/gcash_return.php?status=success',
+                        'failed'  => 'http://localhost/water/user/gcash_return.php?status=failed',
+                    ],
+                ],
+            ],
+        ]);
+
+        $sk = 'sk_'; 
+
+        $ch = curl_init('https://api.paymongo.com/v1/sources');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $payload,
+            CURLOPT_HTTPHEADER     => [
+                'Content-Type: application/json',
+                'Authorization: Basic ' . base64_encode($sk . ':'),
+            ],
+        ]);
+        $response = json_decode(curl_exec($ch), true);
+        curl_close($ch);
+
+        if (!empty($response['data']['attributes']['redirect']['checkout_url'])) {
+          $src_id_esc = $conn->real_escape_string($response['data']['id']);
+            $conn->query("INSERT INTO gcash_pending_orders
+                (Source_ID, User_ID, Items_JSON, Address_ID, Payment_Type_ID, Customer_Name, Order_Note, Grand_Total)
+                VALUES ('$src_id_esc', $uid, '$items_json', $address_id, $gcash_pid, '$cust_esc', '$note_esc', $total)");
+            header('Location: ' . $response['data']['attributes']['redirect']['checkout_url']);
+            exit;
+        } else {
+            $gcash_error = true; // show error below
+        }
+
     } else {
+        // ── Non-GCash: insert order immediately (your original logic) ──
         $actual_pid = $use_wallet
             ? ($conn->query("SELECT Payment_Type_ID FROM payments_type LIMIT 1")->fetch_assoc()['Payment_Type_ID'] ?? 1)
             : (int)$payment_id;
 
         foreach ($items as $item) {
-            $pid = $item['Product_ID'];
-            $sid = $item['Size_ID'] ?: 'NULL';
-            $qty = $item['Quantity'];
+            $pid   = $item['Product_ID'];
+            $sid   = $item['Size_ID'] ?: 'NULL';
+            $qty   = $item['Quantity'];
             $price = $item['Unit_Price'];
-            $fn  = $use_wallet ? ($note ? $note . ' [Wallet]' : 'Paid with Wallet') : $note;
-            $fne = $conn->real_escape_string($fn);
+            $fn    = $use_wallet ? ($note ? $note . ' [Wallet]' : 'Paid with Wallet') : $note;
+            $fne   = $conn->real_escape_string($fn);
             $conn->query("INSERT INTO orders
                 (User_ID,Product_ID,Size_ID,Customer_Type_ID,Payment_Type_ID,
                  Order_Quantity,Product_Price,Customer_Name,Order_Note,Address_ID)
@@ -87,8 +143,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['checkout'])) {
         }
 
         $conn->query("DELETE FROM cart WHERE User_ID=$uid");
-        header('Location: orders.php?success=1'); exit;
+        header('Location: orders.php?success=1');
+        exit;
     }
+}
 }
 
 
@@ -561,6 +619,9 @@ textarea{resize:vertical;min-height:70px}
   <?php if (isset($wallet_error)): ?>
     <div class="alert-error">✕ Insufficient Wallet balance. Balance: ₱<?= number_format($wallet_balance,2) ?> — Total: ₱<?= number_format($order_grand_total,2) ?>. <a href="wallet.php">Top up →</a></div>
   <?php endif; ?>
+  <?php if (isset($gcash_error)): ?>
+  <div class="alert-error">⚠ Could not connect to GCash. Please try again.</div>
+<?php endif; ?>
 
   <?php if (empty($items)): ?>
     <div class="empty">

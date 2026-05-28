@@ -148,6 +148,116 @@ body{background:#eef7ff;color:var(--text);font-family:var(--sans);min-height:100
     .guest-banner:hover .banner-track {
       animation-play-state: paused;
     }
+
+    /* Refill button on each product card */
+.refill-btn {
+  margin: 0 18px 14px;
+  padding: 11px;
+  background: transparent;
+  color: var(--water);
+  border: 1.5px solid var(--water);
+  border-radius: 30px;
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.refill-btn:hover {
+  background: var(--water);
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,112,255,0.25);
+}
+.refill-btn:disabled { opacity:.45; cursor:not-allowed; transform:none; box-shadow:none; }
+ 
+/* Modal overlay */
+.refill-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,10,30,.55);
+  backdrop-filter: blur(4px);
+  z-index: 500;
+  align-items: center;
+  justify-content: center;
+}
+.refill-overlay.open { display: flex; }
+ 
+/* Modal box */
+.refill-modal {
+  background: #fff;
+  border-radius: 20px;
+  width: 100%;
+  max-width: 420px;
+  margin: 20px;
+  box-shadow: 0 24px 60px rgba(0,26,77,.25);
+  overflow: hidden;
+  animation: rModalIn .22s ease;
+}
+@keyframes rModalIn {
+  from { transform:translateY(16px); opacity:0; }
+  to   { transform:translateY(0);    opacity:1; }
+}
+ 
+.refill-modal-head {
+  background: linear-gradient(135deg,var(--navy),var(--deep2));
+  padding: 22px 24px 18px;
+  color: #e6f4ff;
+}
+.refill-modal-head h3 { font-family:var(--serif); font-size:20px; margin-bottom:4px; }
+.refill-modal-head p  { font-size:12px; color:rgba(200,230,255,.6); font-family:var(--mono); }
+ 
+.refill-modal-body { padding: 22px 24px; }
+ 
+/* Qty stepper */
+.rqty-row { display:flex; align-items:center; gap:12px; margin-bottom:18px; }
+.rqty-label { font-size:12px; font-family:var(--mono); color:var(--text-muted); text-transform:uppercase; letter-spacing:1px; flex:1; }
+.rqty-stepper { display:flex; align-items:center; border:1.5px solid var(--border); border-radius:10px; overflow:hidden; }
+.rqty-stepper button { width:36px; height:36px; border:none; background:var(--sky); color:var(--deep2); font-size:18px; font-weight:700; cursor:pointer; }
+.rqty-stepper button:hover { background:var(--sky2); }
+.rqty-stepper input {
+  width:48px; text-align:center; border:none;
+  border-left:1.5px solid var(--border); border-right:1.5px solid var(--border);
+  font-family:var(--mono); font-size:15px; font-weight:700; color:var(--deep2);
+  height:36px; outline:none;
+}
+ 
+/* Payment toggle */
+.rpay-toggle { display:flex; gap:8px; margin-bottom:18px; }
+.rpay-opt {
+  flex:1; padding:10px; border-radius:10px;
+  border:1.5px solid var(--border); background:#fff;
+  color:var(--text-soft); font-family:var(--sans); font-size:13px; font-weight:600;
+  cursor:pointer; transition:all .18s; text-align:center;
+}
+.rpay-opt:hover { border-color:var(--water-bright); background:var(--sky); }
+.rpay-opt.active { border-color:var(--water); background:var(--water); color:#fff; box-shadow:0 3px 10px rgba(0,112,255,.25); }
+ 
+/* Total bar */
+.rtotal-bar {
+  background:var(--sky); border:1px solid var(--border); border-radius:12px;
+  padding:12px 16px; display:flex; align-items:center; justify-content:space-between;
+  margin-bottom:18px;
+}
+.rtotal-bar .rlabel { font-size:11px; font-family:var(--mono); color:var(--text-muted); text-transform:uppercase; letter-spacing:1px; }
+.rtotal-bar .ramount { font-family:var(--serif); font-size:22px; font-weight:700; color:var(--water); }
+ 
+/* Confirm + cancel */
+.rconfirm-btn {
+  width:100%; padding:13px; background:var(--water); color:#fff;
+  border:none; border-radius:30px; font-family:var(--sans); font-size:14px;
+  font-weight:700; cursor:pointer; transition:all .2s;
+}
+.rconfirm-btn:hover { background:var(--deep2); transform:translateY(-1px); box-shadow:0 6px 18px rgba(0,112,255,.3); }
+.rconfirm-btn:disabled { background:var(--sky2); color:var(--text-muted); cursor:not-allowed; transform:none; box-shadow:none; }
+.rcancel-link { display:block; text-align:center; margin-top:10px; font-size:12px; color:var(--text-muted); cursor:pointer; font-family:var(--mono); }
+.rcancel-link:hover { color:var(--water); }
+
   </style>
 </head>
 <body>
@@ -282,6 +392,14 @@ body{background:#eef7ff;color:var(--text);font-family:var(--sans);min-height:100
           onclick="addToCart(<?= $p['Product_ID'] ?>, this); window.location.href='cart.php';">
           Buy Now
         </button>
+        <button class="refill-btn"
+            onclick="openRefillModal(
+              <?= $p['Product_ID'] ?>,
+              '<?= htmlspecialchars(addslashes($p['Product_Name'])) ?>',
+              <?= $p['Product_Price'] ?>
+            )">
+          🔄 Request Refill
+        </button>
       <?php else: ?>
         <button class="add-btn guest" onclick="window.location='../auth/login.php?redirect=user/shop.php'">Sign in to Order</button>
       <?php endif; ?>
@@ -293,6 +411,55 @@ body{background:#eef7ff;color:var(--text);font-family:var(--sans);min-height:100
 
 <div class="footer">💧 AquaLuxe — Pure water, pure care, delivered to your door</div>
 <div class="toast" id="toast">💧 Added to your order!</div>
+
+<div class="refill-overlay" id="refillOverlay" onclick="handleRefillOverlay(event)">
+  <div class="refill-modal">
+ 
+    <div class="refill-modal-head">
+      <h3>🔄 Request a Refill</h3>
+      <p id="rModalSub">Staff will come pick up your container</p>
+    </div>
+ 
+    <div class="refill-modal-body">
+ 
+      <!-- Quantity -->
+      <div class="rqty-row">
+        <span class="rqty-label">Containers to refill</span>
+        <div class="rqty-stepper">
+          <button type="button" onclick="rChangeQty(-1)">−</button>
+          <input type="number" id="rQtyInput" value="1" min="1" max="20" oninput="rSyncQty()">
+          <button type="button" onclick="rChangeQty(1)">+</button>
+        </div>
+      </div>
+ 
+      <!-- Payment -->
+      <div style="font-size:11px;font-family:var(--mono);color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Payment Method</div>
+      <div class="rpay-toggle">
+        <button type="button" class="rpay-opt active" id="rPayWallet" onclick="rSetPayment('wallet')">💳 Wallet</button>
+        <button type="button" class="rpay-opt"        id="rPayCOD"    onclick="rSetPayment('cod')">💵 Cash on Pickup</button>
+      </div>
+ 
+      <!-- Total -->
+      <div class="rtotal-bar">
+        <div>
+          <div class="rlabel">Total</div>
+          <div class="ramount" id="rTotal">₱0.00</div>
+        </div>
+        <div style="text-align:right;font-size:12px;color:var(--text-muted);font-family:var(--mono)" id="rMeta"></div>
+      </div>
+ 
+      <button class="rconfirm-btn" id="rConfirmBtn" onclick="submitRefill()">
+        Confirm Refill Request
+      </button>
+      <span class="rcancel-link" onclick="closeRefillModal()">Cancel</span>
+ 
+      <!-- Hidden state -->
+      <input type="hidden" id="rProductId"  value="">
+      <input type="hidden" id="rUnitPrice"  value="0">
+      <input type="hidden" id="rPayMethod"  value="wallet">
+    </div>
+  </div>
+</div>
 
 <script>
 const selectedSizes = {};
@@ -324,6 +491,105 @@ function addToCart(productId, btn) {
     setTimeout(() => t.classList.remove('show'), 2500);
   });
 }
+
+function openRefillModal(productId, productName, unitPrice) {
+  document.getElementById('rProductId').value = productId;
+  document.getElementById('rUnitPrice').value  = unitPrice;
+  document.getElementById('rQtyInput').value   = 1;
+  document.getElementById('rModalSub').textContent = productName + ' — staff will pick up your container';
+  document.getElementById('rPayMethod').value  = 'wallet';
+  document.getElementById('rPayWallet').classList.add('active');
+  document.getElementById('rPayCOD').classList.remove('active');
+  rUpdateTotal();
+  document.getElementById('refillOverlay').classList.add('open');
+}
+ 
+function closeRefillModal() {
+  document.getElementById('refillOverlay').classList.remove('open');
+}
+ 
+function handleRefillOverlay(e) {
+  if (e.target === document.getElementById('refillOverlay')) closeRefillModal();
+}
+ 
+function rChangeQty(delta) {
+  const el = document.getElementById('rQtyInput');
+  el.value = Math.min(20, Math.max(1, (parseInt(el.value) || 1) + delta));
+  rUpdateTotal();
+}
+ 
+function rSyncQty() {
+  const el = document.getElementById('rQtyInput');
+  el.value = Math.min(20, Math.max(1, parseInt(el.value) || 1));
+  rUpdateTotal();
+}
+ 
+function rSetPayment(method) {
+  document.getElementById('rPayMethod').value = method;
+  document.getElementById('rPayWallet').classList.toggle('active', method === 'wallet');
+  document.getElementById('rPayCOD').classList.toggle('active',    method === 'cod');
+}
+ 
+function rUpdateTotal() {
+  const price = parseFloat(document.getElementById('rUnitPrice').value) || 0;
+  const qty   = parseInt(document.getElementById('rQtyInput').value)    || 1;
+  const total = price * qty;
+  document.getElementById('rTotal').textContent =
+    '₱' + total.toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2});
+  document.getElementById('rMeta').textContent =
+    '₱' + price.toFixed(2) + ' × ' + qty;
+}
+ 
+function submitRefill() {
+  const productId = document.getElementById('rProductId').value;
+  const qty       = document.getElementById('rQtyInput').value;
+  const payment   = document.getElementById('rPayMethod').value;
+  const btn       = document.getElementById('rConfirmBtn');
+ 
+  if (!productId) return;
+ 
+  btn.disabled    = true;
+  btn.textContent = 'Placing request…';
+ 
+  fetch('refill_action.php', {
+    method:  'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body:    `action=refill&product_id=${productId}&quantity=${qty}&payment=${payment}`
+  })
+  .then(r => r.json())
+  .then(data => {
+    btn.disabled    = false;
+    btn.textContent = 'Confirm Refill Request';
+    closeRefillModal();
+ 
+    // Show toast (reuses your existing #toast element)
+    const t = document.getElementById('toast');
+    t.textContent      = data.message;
+    t.style.background = data.success ? 'var(--navy)' : '#7b1a00';
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 3500);
+ 
+    // Update wallet button in topbar if paid by wallet
+    if (data.success && payment === 'wallet' && data.new_balance !== undefined) {
+      document.querySelectorAll('a.btn').forEach(a => {
+        if (a.textContent.includes('Wallet')) {
+          a.innerHTML = ' Wallet 💳 ₱' + data.new_balance;
+        }
+      });
+    }
+  })
+  .catch(() => {
+    btn.disabled    = false;
+    btn.textContent = 'Confirm Refill Request';
+    closeRefillModal();
+    const t = document.getElementById('toast');
+    t.textContent      = '❌ Network error. Please try again.';
+    t.style.background = '#7b1a00';
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 3000);
+  });
+}
+
 </script>
 </body>
 </html>
