@@ -3,6 +3,7 @@
 config.php
 uploads
 .htaccess
+.ignoreme
 # (Add any other files containing DB_PASSWORD or API_KEYS)
 
 # --- Dependency Managers ---

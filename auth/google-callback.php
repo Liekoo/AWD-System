@@ -3,14 +3,15 @@ session_start();
 
 // This goes up one level to find config.php in your root htdocs folder
 require_once '../config.php'; 
+require_once '../env.php'; // Load environment variables
 
 if (isset($_GET['code'])) {
     $code = $_GET['code'];
     
     // REPLACE THESE WITH ACTUAL GOOGLE CLOUD CREDENTIALS
-    $client_id = '.apps.googleusercontent.com';
-    $client_secret = '';
-    $redirect_uri = 'https://liekoo.ct.ws/auth/google-callback.php';
+    $client_id = $_ENV['GOOGLE_CLIENT_ID'];
+    $client_secret = $_ENV['GOOGLE_CLIENT_SECRET'];
+    $redirect_uri = $_ENV['GOOGLE_REDIRECT_URI'];
 
     // 1. Exchange the authorization code from Google for an Access Token
     $ch = curl_init('https://oauth2.googleapis.com/token');

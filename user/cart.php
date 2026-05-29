@@ -1,6 +1,7 @@
 <?php
 require '../config.php';
 require_once '../includes/auth_check.php';
+require_once '../env.php'; // adjust path as needed
 require_login();
 $uid = $_SESSION['user_id'];
 
@@ -16,15 +17,17 @@ $cart_items = $conn->query("
     WHERE c.User_ID = $uid
 ");
 
-$items = [];
-
+$items       = [];
 $grand_total = 0;
 
-while ($r = $cart_items->fetch_assoc()) { $items[] = $r; $grand_total += $r['Subtotal']; }
+while ($r = $cart_items->fetch_assoc()) {
+    $items[]     = $r;
+    $grand_total += $r['Subtotal'];
+}
 
-$delivery_fee  = 10;
-$service_fee   = 10;
-$fees_total    = $delivery_fee + $service_fee;
+$delivery_fee      = 10;
+$service_fee       = 10;
+$fees_total        = $delivery_fee + $service_fee;
 $order_grand_total = $grand_total + $fees_total;
 
 $payment_types  = $conn->query("SELECT * FROM payments_type");
@@ -34,9 +37,12 @@ $wallet_balance = $walletRow['Wallet_Balance'];
 
 // Load saved addresses
 $saved_addresses = $conn->query("SELECT * FROM shipping_addresses WHERE User_ID=$uid ORDER BY Is_Default DESC, Created_At DESC");
-$addresses = [];
+$addresses       = [];
 while ($a = $saved_addresses->fetch_assoc()) $addresses[] = $a;
 $default_address = !empty($addresses) ? $addresses[0] : null;
+
+// ── Secret Key ─────────────────────────────────────────────────────────────────
+$sk = $_ENV['PAYMONGO_SECRET_KEY'];
 
 // ── Handle checkout ────────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['checkout'])) {
@@ -51,104 +57,271 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['checkout'])) {
     $fresh_total = 0;
     foreach ($items as $item) { $fresh_total += $item['Subtotal']; }
 
-     if (empty($payment_id)) {
-    // No payment selected — fall through
-} elseif (!$address_id) {
-    $shipping_error = true;
-} elseif ($use_wallet && $wallet_balance < ($fresh_total + $fees_total)) {
-    $wallet_error = true;
-} else {
-    // ── Check if GCash was selected ────────────────────────────
-    $gcash_row = $conn->query("SELECT Payment_Type_ID FROM payments_type WHERE Payment_Type_Description='GCash' LIMIT 1")->fetch_assoc();
-    $gcash_pid = $gcash_row ? (int)$gcash_row['Payment_Type_ID'] : null;
-    $is_gcash  = ($gcash_pid && (int)$payment_id === $gcash_pid);
+    if (empty($payment_id)) {
+        // No payment selected — fall through to show page
 
-    if ($is_gcash) {
-        // Store pending order info in session — webhook will use this to insert
-        $items_json = $conn->real_escape_string(json_encode($items) ?: '[]');
-        $cust_esc   = $conn->real_escape_string($customer_name);
-        $note_esc   = $conn->real_escape_string($note);
-        $total      = $fresh_total + $fees_total;
+    } elseif (!$address_id) {
+        $shipping_error = true;
 
-        $amount_centavos = (int)(($fresh_total + $fees_total) * 100);
-
-        $payload = json_encode([
-            'data' => [
-                'attributes' => [
-                    'amount'   => $amount_centavos,
-                    'currency' => 'PHP',
-                    'type'     => 'gcash',
-                    'redirect' => [
-                        'success' => 'http://localhost/water/user/gcash_return.php?status=success',
-                        'failed'  => 'http://localhost/water/user/gcash_return.php?status=failed',
-                    ],
-                ],
-            ],
-        ]);
-
-        $sk = 'sk_'; 
-
-        $ch = curl_init('https://api.paymongo.com/v1/sources');
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => $payload,
-            CURLOPT_HTTPHEADER     => [
-                'Content-Type: application/json',
-                'Authorization: Basic ' . base64_encode($sk . ':'),
-            ],
-        ]);
-        $response = json_decode(curl_exec($ch), true);
-        curl_close($ch);
-
-        if (!empty($response['data']['attributes']['redirect']['checkout_url'])) {
-          $src_id_esc = $conn->real_escape_string($response['data']['id']);
-            $conn->query("INSERT INTO gcash_pending_orders
-                (Source_ID, User_ID, Items_JSON, Address_ID, Payment_Type_ID, Customer_Name, Order_Note, Grand_Total)
-                VALUES ('$src_id_esc', $uid, '$items_json', $address_id, $gcash_pid, '$cust_esc', '$note_esc', $total)");
-            header('Location: ' . $response['data']['attributes']['redirect']['checkout_url']);
-            exit;
-        } else {
-            $gcash_error = true; // show error below
-        }
+    } elseif ($use_wallet && $wallet_balance < ($fresh_total + $fees_total)) {
+        $wallet_error = true;
 
     } else {
-        // ── Non-GCash: insert order immediately (your original logic) ──
-        $actual_pid = $use_wallet
-            ? ($conn->query("SELECT Payment_Type_ID FROM payments_type LIMIT 1")->fetch_assoc()['Payment_Type_ID'] ?? 1)
-            : (int)$payment_id;
+        // ── Shared variables for all online payment types ──────────
+        $items_json      = $conn->real_escape_string(json_encode($items) ?: '[]');
+        $cust_esc        = $conn->real_escape_string($customer_name);
+        $note_esc        = $conn->real_escape_string($note);
+        $total           = $fresh_total + $fees_total;
+        $amount_centavos = (int)round($total * 100);
 
-        foreach ($items as $item) {
-            $pid   = $item['Product_ID'];
-            $sid   = $item['Size_ID'] ?: 'NULL';
-            $qty   = $item['Quantity'];
-            $price = $item['Unit_Price'];
-            $fn    = $use_wallet ? ($note ? $note . ' [Wallet]' : 'Paid with Wallet') : $note;
-            $fne   = $conn->real_escape_string($fn);
-            $conn->query("INSERT INTO orders
-                (User_ID,Product_ID,Size_ID,Customer_Type_ID,Payment_Type_ID,
-                 Order_Quantity,Product_Price,Customer_Name,Order_Note,Address_ID)
-                VALUES ($uid,$pid,$sid,$customer_id,$actual_pid,
-                        $qty,$price,'$cust_name','$fne',$address_id)");
-            $conn->query("UPDATE products SET Product_Quantity_Stock=Product_Quantity_Stock-$qty WHERE Product_ID=$pid");
+        // ── Map DB payment description → API type ─────────────────
+        // GCash uses Sources API, QR Ph uses Payment Intents API
+        $sources_map = ['GCash' => 'gcash'];       // Sources API
+        $intents_map = ['QR Ph' => 'qrph'];      // used in payment_method_allowed
+        $intents_method_type = ['QR Ph' => 'qrph']; // for payment method type
+        // Add more here later: 'Maya' => 'paymaya', etc.
+
+        $selected_desc      = $conn->query("SELECT Payment_Type_Description FROM payments_type 
+                                    WHERE Payment_Type_ID=$payment_id LIMIT 1")
+                           ->fetch_assoc()['Payment_Type_Description'] ?? '';
+
+        $is_sources_payment = isset($sources_map[$selected_desc]);
+        $is_intents_payment = isset($intents_map[$selected_desc]);
+        $source_type_key    = $sources_map[$selected_desc] ?? ($intents_map[$selected_desc] ?? null);
+        $method_type_key    = $intents_method_type[$selected_desc] ?? null;
+
+        // ════════════════════════════════════════════════════════════
+        // GCash — Sources API
+        // ════════════════════════════════════════════════════════════
+        if ($is_sources_payment) {
+
+            $payload = json_encode([
+                'data' => ['attributes' => [
+                    'amount'   => $amount_centavos,
+                    'currency' => 'PHP',
+                    'type'     => $source_type_key,
+                    'redirect' => [
+                        'success' => 'https://matter-trapeze-plating.ngrok-free.dev/water/user/payment_return.php?status=success',
+                        'failed'  => 'https://matter-trapeze-plating.ngrok-free.dev/water/user/payment_return.php?status=failed',
+                    ],
+                ]],
+            ]);
+
+            $ch = curl_init('https://api.paymongo.com/v1/sources');
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => $payload,
+                CURLOPT_HTTPHEADER     => [
+                    'Content-Type: application/json',
+                    'Authorization: Basic ' . base64_encode($sk . ':'),
+                ],
+                CURLOPT_SSL_VERIFYPEER => false,
+            ]);
+            $response = json_decode(curl_exec($ch), true);
+            curl_close($ch);
+
+            if (!empty($response['data']['attributes']['redirect']['checkout_url'])) {
+                $src_esc = $conn->real_escape_string($response['data']['id']);
+                $conn->query("INSERT INTO gcash_pending_orders
+                    (Source_ID, User_ID, Items_JSON, Address_ID, Payment_Type_ID, Customer_Name, Order_Note, Grand_Total)
+                    VALUES ('$src_esc', $uid, '$items_json', $address_id, $payment_id, '$cust_esc', '$note_esc', $total)");
+                header('Location: ' . $response['data']['attributes']['redirect']['checkout_url']);
+                exit;
+            }
+
+            // If we reach here, Sources API failed
+            file_put_contents(__DIR__ . '/debug.txt', json_encode($response));
+            $gcash_error = true;
+
+        // ════════════════════════════════════════════════════════════
+        // QR Ph — Payment Intents API (3-step flow)
+        // ════════════════════════════════════════════════════════════
+        } elseif ($is_intents_payment) {
+
+            // ── Step 1: Create Payment Intent ──────────────────────
+            $intent_payload = json_encode([
+                'data' => ['attributes' => [
+                    'amount'                 => $amount_centavos,
+                    'currency'               => 'PHP',
+                    'payment_method_allowed' => [$intents_map[$selected_desc]], // 'qrph'
+                    'description'            => 'AquaLuxe Order',
+                ]],
+            ]);
+
+            $ch = curl_init('https://api.paymongo.com/v1/payment_intents');
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => $intent_payload,
+                CURLOPT_HTTPHEADER     => [
+                    'Content-Type: application/json',
+                    'Authorization: Basic ' . base64_encode($sk . ':'),
+                ],
+                CURLOPT_SSL_VERIFYPEER => false,
+            ]);
+            $intent_res = json_decode(curl_exec($ch), true);
+            curl_close($ch);
+
+            if (isset($intent_res['errors'])) {
+                file_put_contents(__DIR__ . '/debug.txt', 'Step1: ' . json_encode($intent_res));
+                $gcash_error = true;
+                goto end_checkout;
+            }
+
+            $intent_id = $intent_res['data']['id'] ?? null;
+            if (!$intent_id) {
+                file_put_contents(__DIR__ . '/debug.txt', 'Step1 no intent_id: ' . json_encode($intent_res));
+                $gcash_error = true;
+                goto end_checkout;
+            }
+
+            // ── Step 2: Create Payment Method ──────────────────────
+            $method_payload = json_encode([
+                'data' => ['attributes' => [
+                      'type' => $method_type_key, // 'qr_code'
+                ]],
+            ]);
+
+            $ch = curl_init('https://api.paymongo.com/v1/payment_methods');
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => $method_payload,
+                CURLOPT_HTTPHEADER     => [
+                    'Content-Type: application/json',
+                    'Authorization: Basic ' . base64_encode($sk . ':'),
+                ],
+                CURLOPT_SSL_VERIFYPEER => false,
+            ]);
+            $method_res = json_decode(curl_exec($ch), true);
+            curl_close($ch);
+
+            if (isset($method_res['errors'])) {
+                file_put_contents(__DIR__ . '/debug.txt', 'Step2: ' . json_encode($method_res));
+                $gcash_error = true;
+                goto end_checkout;
+            }
+
+            $method_id = $method_res['data']['id'] ?? null;
+            if (!$method_id) {
+                file_put_contents(__DIR__ . '/debug.txt', 'Step2 no method_id: ' . json_encode($method_res));
+                $gcash_error = true;
+                goto end_checkout;
+            }
+
+            // ── Step 3: Attach Payment Method to Intent ────────────
+            $attach_payload = json_encode([
+                'data' => ['attributes' => [
+                    'payment_method' => $method_id,
+                    'return_url' => 'https://matter-trapeze-plating.ngrok-free.dev/water/user/payment_return.php',
+                ]],
+            ]);
+
+            $ch = curl_init("https://api.paymongo.com/v1/payment_intents/{$intent_id}/attach");
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => $attach_payload,
+                CURLOPT_HTTPHEADER     => [
+                    'Content-Type: application/json',
+                    'Authorization: Basic ' . base64_encode($sk . ':'),
+                ],
+                CURLOPT_SSL_VERIFYPEER => false,
+            ]);
+            $attach_res = json_decode(curl_exec($ch), true);
+            curl_close($ch);
+
+            if (isset($attach_res['errors'])) {
+                file_put_contents(__DIR__ . '/debug.txt', 'Step3: ' . json_encode($attach_res));
+                $gcash_error = true;
+                goto end_checkout;
+            }
+
+        // With this:
+          $next_action = $attach_res['data']['attributes']['next_action'] ?? null;
+          $action_type = $next_action['type'] ?? '';
+
+          if ($action_type === 'consume_qr') {
+              // QR Ph — show QR code page
+              $qr_image   = $next_action['code']['image_url'] ?? null;
+              $expires_at  = $next_action['code']['expires_at'] ?? null;
+
+              if ($qr_image) {
+                  $intent_esc = $conn->real_escape_string($intent_id);
+                  $conn->query("INSERT INTO gcash_pending_orders
+                      (Source_ID, User_ID, Items_JSON, Address_ID, Payment_Type_ID, Customer_Name, Order_Note, Grand_Total)
+                      VALUES ('$intent_esc', $uid, '$items_json', $address_id, $payment_id, '$cust_esc', '$note_esc', $total)");
+
+                  $_SESSION['qrph_data'] = [
+                      'qr_image'  => $qr_image,
+                      'intent_id' => $intent_id,
+                      'total'     => $total,
+                      'expires_at'=> $expires_at,
+                  ];
+
+                  header('Location: qrph_payment.php');
+                  exit;
+              }
+
+          } elseif ($action_type === 'redirect') {
+              // GCash via intents or other redirect-based
+              $checkout_url = $next_action['redirect']['url'] ?? null;
+              if ($checkout_url) {
+                  $intent_esc = $conn->real_escape_string($intent_id);
+                  $conn->query("INSERT INTO gcash_pending_orders
+                      (Source_ID, User_ID, Items_JSON, Address_ID, Payment_Type_ID, Customer_Name, Order_Note, Grand_Total)
+                      VALUES ('$intent_esc', $uid, '$items_json', $address_id, $payment_id, '$cust_esc', '$note_esc', $total)");
+                  header('Location: ' . $checkout_url);
+                  exit;
+              }
+          }
+
+          file_put_contents(__DIR__ . '/debug.txt', 'Step3 unhandled next_action: ' . json_encode($attach_res));
+          $gcash_error = true;
+
+        // ════════════════════════════════════════════════════════════
+        // Cash on Delivery / Wallet / any other non-online payment
+        // ════════════════════════════════════════════════════════════
+        } else {
+            $actual_pid = $use_wallet
+                ? ($conn->query("SELECT Payment_Type_ID FROM payments_type LIMIT 1")->fetch_assoc()['Payment_Type_ID'] ?? 1)
+                : (int)$payment_id;
+
+            foreach ($items as $item) {
+                $pid   = $item['Product_ID'];
+                $sid   = $item['Size_ID'] ?: 'NULL';
+                $qty   = $item['Quantity'];
+                $price = $item['Unit_Price'];
+                $fn    = $use_wallet ? ($note ? $note . ' [Wallet]' : 'Paid with Wallet') : $note;
+                $fne   = $conn->real_escape_string($fn);
+                $conn->query("INSERT INTO orders
+                    (User_ID, Product_ID, Size_ID, Customer_Type_ID, Payment_Type_ID,
+                     Order_Quantity, Product_Price, Customer_Name, Order_Note, Address_ID)
+                    VALUES ($uid, $pid, $sid, $customer_id, $actual_pid,
+                            $qty, $price, '$cust_name', '$fne', $address_id)");
+                $conn->query("UPDATE products 
+                              SET Product_Quantity_Stock = Product_Quantity_Stock - $qty 
+                              WHERE Product_ID = $pid");
+            }
+
+            if ($use_wallet) {
+                $charged = $fresh_total + $fees_total;
+                $new_bal = $wallet_balance - $charged;
+                $conn->query("UPDATE users SET Wallet_Balance=$new_bal WHERE User_ID=$uid");
+                $wNote = $conn->real_escape_string('Order payment via Wallet (incl. fees)');
+                $conn->query("INSERT INTO wallet_transactions (User_ID, Type, Amount, Balance_After, Note, Status)
+                              VALUES ($uid, 'purchase', $charged, $new_bal, '$wNote', 'approved')");
+            }
+
+            $conn->query("DELETE FROM cart WHERE User_ID=$uid");
+            header('Location: orders.php?success=1');
+            exit;
         }
 
-        if ($use_wallet) {
-            $charged = $fresh_total + $fees_total;
-            $new_bal = $wallet_balance - $charged;
-            $conn->query("UPDATE users SET Wallet_Balance=$new_bal WHERE User_ID=$uid");
-            $wNote = $conn->real_escape_string('Order payment via Wallet (incl. fees)');
-            $conn->query("INSERT INTO wallet_transactions (User_ID,Type,Amount,Balance_After,Note,Status)
-                          VALUES ($uid,'purchase',$charged,$new_bal,'$wNote','approved')");
-        }
-
-        $conn->query("DELETE FROM cart WHERE User_ID=$uid");
-        header('Location: orders.php?success=1');
-        exit;
+        end_checkout:
     }
 }
-}
-
 
 // ── AJAX: Save new address ─────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_address'])) {
@@ -168,10 +341,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_address'])) {
     if ($def) $conn->query("UPDATE shipping_addresses SET Is_Default=0 WHERE User_ID=$uid");
 
     $conn->query("INSERT INTO shipping_addresses
-        (User_ID,Full_Name,Phone,Address,City,Province,Zip_Code,Latitude,Longitude,Is_Default)
-        VALUES ($uid,'$fn','$ph','$addr','$city','$prov','$zip',$lat_val,$lng_val,$def)");
+        (User_ID, Full_Name, Phone, Address, City, Province, Zip_Code, Latitude, Longitude, Is_Default)
+        VALUES ($uid, '$fn', '$ph', '$addr', '$city', '$prov', '$zip', $lat_val, $lng_val, $def)");
     $new_id = $conn->insert_id;
-    $row = $conn->query("SELECT * FROM shipping_addresses WHERE Address_ID=$new_id")->fetch_assoc();
+    $row    = $conn->query("SELECT * FROM shipping_addresses WHERE Address_ID=$new_id")->fetch_assoc();
     echo json_encode(['success' => true, 'address' => $row]);
     exit;
 }
@@ -185,9 +358,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_address'])) {
         echo json_encode(['success' => false, 'message' => 'Address not found.']); exit;
     }
     if ($check['Is_Default']) {
-        // Count how many addresses the user has
-        $total = $conn->query("SELECT COUNT(*) AS c FROM shipping_addresses WHERE User_ID=$uid")->fetch_assoc()['c'];
-        if ($total <= 1) {
+        $cnt = $conn->query("SELECT COUNT(*) AS c FROM shipping_addresses WHERE User_ID=$uid")->fetch_assoc()['c'];
+        if ($cnt <= 1) {
             echo json_encode(['success' => false, 'message' => 'You cannot delete your only address.']); exit;
         }
         echo json_encode(['success' => false, 'message' => 'Set another address as default before deleting this one.']); exit;
@@ -620,7 +792,7 @@ textarea{resize:vertical;min-height:70px}
     <div class="alert-error">✕ Insufficient Wallet balance. Balance: ₱<?= number_format($wallet_balance,2) ?> — Total: ₱<?= number_format($order_grand_total,2) ?>. <a href="wallet.php">Top up →</a></div>
   <?php endif; ?>
   <?php if (isset($gcash_error)): ?>
-  <div class="alert-error">⚠ Could not connect to GCash. Please try again.</div>
+  <div class="alert-error">⚠ Could not connect Please try again.</div>
 <?php endif; ?>
 
   <?php if (empty($items)): ?>

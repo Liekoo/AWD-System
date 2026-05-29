@@ -1,6 +1,7 @@
 <?php
 session_start();
 require '../config.php';
+require_once '../env.php'; // adjust path
 
 if (isset($_SESSION['user_id'])) {
     header('Location: ../index.php'); exit;
@@ -36,6 +37,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Invalid username or password.';
     }
 }
+
+$google_auth_url = 'https://accounts.google.com/o/oauth2/v2/auth?' . http_build_query([
+    'client_id'     => $_ENV['GOOGLE_CLIENT_ID'],
+    'redirect_uri'  => $_ENV['GOOGLE_REDIRECT_URI'],
+    'response_type' => 'code',
+    'scope'         => 'email profile',
+]);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -136,7 +144,7 @@ input:focus{border-color:var(--water-bright);background:#fff}
     </form>
     <div class="google-wrap">
       <div class="or-divider"><span>or continue with</span></div>
-      <a href="https://accounts.google.com/o/oauth2/v2/auth?client_id=.apps.googleusercontent.com&redirect_uri=https://liekoo.ct.ws/auth/google-callback.php&response_type=code&scope=email%20profile" class="btn-google">
+        <a href="<?= htmlspecialchars($google_auth_url) ?>" class="btn-google">
         <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google">
         Sign in with Google Account
     </a>
