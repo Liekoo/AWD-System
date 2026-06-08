@@ -2,6 +2,50 @@
 require '../config.php';
 $pageTitle = 'Products';
 
+// ── CSV Import (ADDED) ─────────────────────────────────────────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['import_csv'])) {
+    $added = $updated = $skipped = 0;
+    if (!empty($_FILES['csv_file']['name']) && $_FILES['csv_file']['error'] === 0) {
+        $ext = strtolower(pathinfo($_FILES['csv_file']['name'], PATHINFO_EXTENSION));
+        if ($ext !== 'csv') { header('Location: products.php?import_error=filetype'); exit; }
+        $handle = fopen($_FILES['csv_file']['tmp_name'], 'r');
+        $header = array_map(fn($h) => strtolower(trim($h)), fgetcsv($handle));
+        while (($row = fgetcsv($handle)) !== false) {
+            if (count($row) < count($header)) { $skipped++; continue; }
+            $d      = array_combine($header, $row);
+            $name   = $conn->real_escape_string(trim($d['product_name']            ?? ''));
+            $price  = (float)($d['product_price']                                  ?? 0);
+            $stock  = (int)($d['product_quantity_stock']                            ?? 0);
+            $status = $conn->real_escape_string(trim($d['product_status']           ?? 'Active'));
+            $desc   = $conn->real_escape_string(trim($d['product_description']      ?? ''));
+            $image  = $conn->real_escape_string(trim($d['product_image']            ?? ''));
+            $pid    = (int)($d['product_id']                                        ?? 0);
+            if (empty($name)) { $skipped++; continue; }
+            if (!in_array($status, ['Active','Inactive','Out of Stock'])) $status = 'Active';
+            $img_sql  = !empty($image) ? "'$image'" : 'NULL';
+            $img_part = !empty($image) ? ", Product_Image='$image'" : '';
+            if ($pid > 0 && $conn->query("SELECT Product_ID FROM products WHERE Product_ID=$pid")->num_rows > 0) {
+                $conn->query("UPDATE products SET Product_Name='$name', Product_Price=$price,
+                    Product_Quantity_Stock=$stock, Product_Status='$status',
+                    Product_Description='$desc' $img_part WHERE Product_ID=$pid");
+                $updated++;
+            } else {
+                $conn->query("INSERT INTO products (Product_Name,Product_Price,Product_Quantity_Stock,
+                    Product_Status,Product_Description,Product_Image)
+                    VALUES ('$name',$price,$stock,'$status','$desc',$img_sql)");
+                $added++;
+            }
+        }
+        fclose($handle);
+        header("Location: products.php?import_ok=1&added=$added&updated=$updated&skipped=$skipped");
+    } else {
+        header('Location: products.php?import_error=nofile');
+    }
+    exit;
+}
+// ── END CSV Import ─────────────────────────────────────────────────────────────
+
+// ── YOUR EXISTING CODE (unchanged) ────────────────────────────────────────────
 if (isset($_GET['delete'])) {
     $id   = (int)$_GET['delete'];
     $used = $conn->query("SELECT COUNT(*) AS c FROM orders WHERE Product_ID = $id")->fetch_assoc()['c'];
@@ -25,7 +69,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $status = $conn->real_escape_string($_POST['Product_Status']);
     $desc   = $conn->real_escape_string($_POST['Product_Description']);
 
-    // Handle image upload
     $filename = null;
     if (!empty($_FILES['Product_Image']['name'])) {
         $ext = strtolower(pathinfo($_FILES['Product_Image']['name'], PATHINFO_EXTENSION));
@@ -36,7 +79,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if (isset($_POST['Product_ID']) && $_POST['Product_ID'] !== '') {
-        // UPDATE existing product
         $id = (int)$_POST['Product_ID'];
         $img_part = $filename ? ", Product_Image='$filename'" : '';
         $conn->query("UPDATE products SET
@@ -49,7 +91,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             WHERE Product_ID=$id");
         header('Location: products.php?success=updated');
     } else {
-        // INSERT new product
         if ($filename) {
             $conn->query("INSERT INTO products (Product_Name, Product_Price, Product_Quantity_Stock, Product_Status, Product_Description, Product_Image)
                           VALUES ('$name', $price, $stock, '$status', '$desc', '$filename')");
@@ -75,6 +116,19 @@ require "../includes/header.php";
 <?php if (isset($_GET['error']) && $_GET['error'] === 'inuse'): ?>
   <div class="alert alert-error">✕ Cannot delete — this product has existing orders.</div>
 <?php endif; ?>
+
+<!-- ADDED: Import result alerts -->
+<?php if (isset($_GET['import_ok'])): ?>
+  <div class="alert alert-success">
+    ✓ Import complete — <?= (int)$_GET['added'] ?> added, <?= (int)$_GET['updated'] ?> updated, <?= (int)$_GET['skipped'] ?> skipped.
+  </div>
+<?php endif; ?>
+<?php if (isset($_GET['import_error'])): ?>
+  <div class="alert alert-error">
+    ✕ Import failed — <?= $_GET['import_error'] === 'filetype' ? 'only .csv files are allowed.' : 'no file was uploaded.' ?>
+  </div>
+<?php endif; ?>
+<!-- END ADDED -->
 
 <div class="card">
   <div class="card-title"><?= $editRow ? 'Edit Product #'.$editRow['Product_ID'] : 'New Product' ?></div>
@@ -124,7 +178,42 @@ require "../includes/header.php";
 </div>
 
 <div class="card">
-  <div class="card-title">All Products</div>
+  <!-- ADDED: Export buttons + Import accordion header row -->
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:4px">
+    <div class="card-title" style="margin:0">All Products</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <a href="export_products.php?format=csv"   class="btn btn-ghost btn-sm">⬇ CSV</a>
+      <a href="export_products.php?format=excel" class="btn btn-ghost btn-sm">⬇ Excel</a>
+      <a href="export_products.php?format=svg"   class="btn btn-ghost btn-sm">⬇ SVG</a>
+      <button type="button" id="importToggleBtn"
+              class="btn btn-sm"
+              style="background:rgba(0,200,150,0.12);color:#009e77;border:1px solid rgba(0,200,150,0.3)">
+        ⬆ Import CSV
+      </button>
+    </div>
+  </div>
+
+  <!-- ADDED: Import accordion -->
+  <div id="importAccordion" style="display:none;margin-bottom:16px;margin-top:12px">
+    <div style="background:rgba(0,200,150,0.06);border:1px solid rgba(0,200,150,0.25);border-radius:10px;padding:16px">
+      <div style="font-size:12px;font-family:var(--mono);color:var(--muted);margin-bottom:10px">
+        Upload a <strong>.csv</strong> file to bulk-add or update products.<br>
+        Columns: <code>Product_ID, Product_Name, Product_Price, Product_Quantity_Stock, Product_Status, Product_Description, Product_Image</code><br>
+        Leave <code>Product_ID</code> blank to add new. Fill it to update an existing product.
+        &nbsp;·&nbsp;
+        <a href="export_products.php?format=template" style="color:#009e77">Download blank template →</a>
+      </div>
+      <form method="POST" enctype="multipart/form-data"
+            style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <input type="hidden" name="import_csv" value="1">
+        <input type="file" name="csv_file" accept=".csv" required
+               style="font-size:13px;flex:1;min-width:200px">
+        <button type="submit" class="btn btn-sm btn-primary">⬆ Import</button>
+      </form>
+    </div>
+  </div>
+  <!-- END ADDED -->
+
   <?php if ($sizeCount > 0): ?>
     <p style="font-size:12px;color:var(--muted);font-family:var(--mono);margin-bottom:16px">
       ✓ <?= $sizeCount ?> global size<?= $sizeCount != 1 ? 's' : '' ?> active —
@@ -185,10 +274,21 @@ require "../includes/header.php";
 </div>
 
 <script>
+// YOUR EXISTING script (unchanged)
 function previewImg(input) {
   const p = document.getElementById('imgPreview');
   if (input.files && input.files[0]) { p.src = URL.createObjectURL(input.files[0]); p.style.display = 'block'; }
 }
+
+// ADDED: Import accordion toggle
+const importAcc = document.getElementById('importAccordion');
+document.getElementById('importToggleBtn').addEventListener('click', function() {
+  importAcc.style.display = importAcc.style.display === 'none' ? 'block' : 'none';
+});
+// Keep accordion open if import just ran
+<?php if (isset($_GET['import_ok']) || isset($_GET['import_error'])): ?>
+importAcc.style.display = 'block';
+<?php endif; ?>
 </script>
 
 <?php require '../includes/footer.php'; ?>
