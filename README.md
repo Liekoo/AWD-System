@@ -277,6 +277,12 @@ Then in your **PayMongo Dashboard → Developers → Webhooks**:
 ## 📸 Screenshots
 
 > Add screenshots here of the shop, cart, QR payment page, staff order dashboard, and admin dashboard.
+<p align="center">
+  <img src="readme_resources/screen_shot1.PNG" width="1000" />
+  <img src="readme_resources/screen_shot2.PNG" width="1000" />
+  <img src="readme_resources/screen_shot3.PNG" width="1000" />
+  <img src="readme_resources/screen_shot4.PNG" width="1000" />
+</p>
 
 ---
 
